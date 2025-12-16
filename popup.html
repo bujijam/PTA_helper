@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- 关键修改：添加 charset 定义解决乱码 -->
+  <meta charset="UTF-8">
+  <style>
+    body { width: 320px; padding: 15px; font-family: "Microsoft YaHei", sans-serif; font-size: 14px; }
+    h3 { margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    label { display: block; margin-top: 10px; margin-bottom: 5px; font-weight: bold; color: #555; }
+    input, select, button { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { margin-top: 15px; background-color: #1890ff; color: white; border: none; cursor: pointer; font-weight: bold; }
+    button:hover { background-color: #096dd9; }
+    .status { color: green; display: none; text-align: center; margin-top: 10px; }
+    .note { font-size: 12px; color: #888; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <h3>🎓 数据结构 AI 助教设置</h3>
+  
+  <label>OpenRouter API Key:</label>
+  <input type="password" id="apiKey" placeholder="sk-or-v1-...">
+  <div class="note">请确保 Key 有余额</div>
+  
+  <label>选择 AI 模型:</label>
+  <select id="modelSelect">
+    <!-- 将 Gemini 放在第一个，并添加 selected 属性 -->
+    <option value="google/gemini-3-pro-preview" selected>Gemini 3 Pro Preview (推荐/默认)</option>
+    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+    <option value="openai/gpt-4o">GPT-4o</option>
+    <option value="meta-llama/llama-3-70b-instruct">Llama 3 70B</option>
+  </select>
+
+  <button id="saveBtn">💾 保存配置</button>
+  <div id="status" class="status">✅ 保存成功!</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
