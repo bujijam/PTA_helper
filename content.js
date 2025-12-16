@@ -1,7 +1,14 @@
 // content.js
 
-// 1. 查找所有题目容器 (根据提供的HTML，容器有 pc-x 类且通常有数字ID)
-// 我们过滤掉没有 ID 的无关容器
+// 辅助函数：触发 React/Vue 的输入事件（非常重要，否则填入的值可能提交不上）
+function triggerInputEvent(element, value) {
+  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  nativeInputValueSetter.call(element, value);
+  const ev2 = new Event('input', { bubbles: true });
+  element.dispatchEvent(ev2);
+}
+
+// 1. 获取所有题目容器
 function getQuestionContainers() {
   return Array.from(document.querySelectorAll('.pc-x')).filter(div => div.id && div.id.length > 5);
 }
@@ -10,26 +17,20 @@ function addAIButtons() {
   const questions = getQuestionContainers();
 
   questions.forEach((qDiv) => {
-    // 防止重复添加
     if (qDiv.querySelector('.ds-ai-btn')) return;
 
-    // 找到题目头部的操作栏 (通常是第一行 flex 布局的位置)
     const headerRow = qDiv.querySelector('.flex.flex-wrap.gap-2');
     
     if (headerRow) {
       const btn = document.createElement('button');
       btn.className = 'ds-ai-btn';
       btn.innerText = '🤖 AI 解题';
-      // 样式调整以匹配原生风格
       btn.style.marginLeft = '10px';
-      btn.style.padding = '2px 10px';
-      btn.style.fontSize = '12px';
       
       btn.onclick = (e) => handleExplanation(e, qDiv);
       headerRow.appendChild(btn);
     }
 
-    // 创建解析显示框
     const answerDiv = document.createElement('div');
     answerDiv.className = 'ds-ai-answer-box';
     answerDiv.style.display = 'none';
@@ -40,37 +41,65 @@ function addAIButtons() {
 async function handleExplanation(e, qDiv) {
   const btn = e.target;
   const outputDiv = qDiv.querySelector('.ds-ai-answer-box');
+  
+  // === 识别题型 ===
+  const textInputs = qDiv.querySelectorAll('input[type="text"][data-blank="true"]');
+  const radioInputs = qDiv.querySelectorAll('input[type="radio"]');
+  
+  let questionType = 'unknown';
+  if (textInputs.length > 0) questionType = 'fill';
+  else if (radioInputs.length > 0) questionType = 'choice';
 
-  // === 1. 获取题目文本 ===
-  // 题目描述通常在第一个 markdown 块中
-  const questionContentBlock = qDiv.querySelector('.markdownBlock_tErSz .rendered-markdown');
-  const questionText = questionContentBlock ? questionContentBlock.innerText : "无法获取题目内容";
+  // === 1. 智能提取题目文本 ===
+  // 核心逻辑：为了让AI知道哪里是空，我们需要把 HTML 里的 input 标签临时替换成 "______"
+  const markdownBlock = qDiv.querySelector('.rendered-markdown');
+  let cleanQuestionText = "";
 
-  // === 2. 获取选项内容 (如果有) ===
-  const labels = qDiv.querySelectorAll('label');
+  if (markdownBlock) {
+    if (questionType === 'fill') {
+      // 克隆节点以免破坏页面显示
+      const clone = markdownBlock.cloneNode(true);
+      const inputs = clone.querySelectorAll('input, span[data-blank="true"]'); // 覆盖 input 或 包裹 input 的 span
+      inputs.forEach(input => {
+        const placeholder = document.createTextNode(" ______ ");
+        input.parentNode.replaceChild(placeholder, input);
+      });
+      cleanQuestionText = clone.innerText;
+    } else {
+      cleanQuestionText = markdownBlock.innerText;
+    }
+  } else {
+    cleanQuestionText = "未找到题目内容";
+  }
+
+  // === 2. 获取选项（仅针对选择/判断）===
   let optionsText = "";
-  let isChoiceQuestion = labels.length > 0;
-
-  if (isChoiceQuestion) {
+  if (questionType === 'choice') {
+    const labels = qDiv.querySelectorAll('label');
     labels.forEach(label => {
-      // 提取选项字母 (A.) 和 内容
-      // 你的HTML结构中，字母在 label -> div -> span 中
-      const letterSpan = label.querySelector('span'); 
-      const letter = letterSpan ? letterSpan.innerText.trim() : "";
-      const contentDiv = label.querySelector('.markdownBlock_tErSz');
-      const content = contentDiv ? contentDiv.innerText.trim() : "";
-      optionsText += `${letter} ${content}\n`;
+      // 适配判断题的直接文本 (T/F) 和选择题的嵌套结构
+      let optText = label.innerText.trim(); 
+      // 简单的清洗：去掉多余换行
+      optText = optText.replace(/\n+/g, ' '); 
+      optionsText += `${optText}\n`;
     });
   }
 
   // === 3. 构造 Prompt ===
-  const fullPrompt = `题目：\n${questionText}\n\n选项：\n${optionsText}\n\n如果是填空题，请直接给出填空结果。如果是选择题，请判断正确选项。`;
+  let promptSuffix = "";
+  if (questionType === 'fill') {
+    promptSuffix = "这是一个填空题，请在 JSON 的 answer 字段中返回一个数组，包含每个空的准确答案。";
+  } else {
+    promptSuffix = "如果是判断题，answer 返回 'T' 或 'F'。如果是选择题，返回选项字母。";
+  }
+
+  const fullPrompt = `题目：\n${cleanQuestionText}\n\n选项：\n${optionsText}\n\n要求：\n${promptSuffix}`;
 
   // === UI 更新 ===
-  btn.innerText = '分析中...';
+  btn.innerText = '🧠 思考中...';
   btn.disabled = true;
   outputDiv.style.display = 'block';
-  outputDiv.innerHTML = '<div class="loading-spinner">正在请求 AI 教授进行分析...</div>';
+  outputDiv.innerHTML = '<div class="loading-spinner">AI 教授正在分析题目逻辑...</div>';
 
   // === 4. 发送请求 ===
   chrome.runtime.sendMessage({
@@ -84,27 +113,35 @@ async function handleExplanation(e, qDiv) {
       const result = response.data;
       
       // 显示解析
+      let answerDisplay = "";
+      if (Array.isArray(result.answer)) {
+        answerDisplay = result.answer.join("，"); // 填空题数组展示
+      } else {
+        answerDisplay = result.answer; // 选择题单字符展示
+      }
+
       outputDiv.innerHTML = `
         <div class="ai-result-header">
-          <strong>建议答案：</strong> <span class="ai-answer-tag">${result.answer}</span>
+          <strong>答案：</strong> <span class="ai-answer-tag">${answerDisplay}</span>
         </div>
         <div class="ai-explanation">
-          <strong>解析：</strong><br>
           ${result.explanation.replace(/\n/g, '<br>')}
         </div>
       `;
 
-      // === 5. 自动完成 (Auto-fill) ===
-      if (isChoiceQuestion && result.answer) {
+      // === 5. 自动完成逻辑 ===
+      if (questionType === 'fill' && Array.isArray(result.answer)) {
+        // 自动填空
+        textInputs.forEach((input, index) => {
+          if (result.answer[index]) {
+            // 使用 triggerInputEvent 确保 React 能检测到变动
+            triggerInputEvent(input, result.answer[index]);
+            input.style.backgroundColor = "#f6ffed"; // 视觉反馈
+          }
+        });
+      } else if (questionType === 'choice') {
+        // 自动勾选 (兼容 T/F 和 A-D)
         autoSelectOption(qDiv, result.answer);
-      } else {
-        // 如果是填空题，尝试自动填写 (需要您提供填空题的HTML才能精确匹配)
-        // 这里做一个简单的尝试：查找 text input
-        const textInput = qDiv.querySelector('input[type="text"]');
-        if (textInput) {
-            textInput.value = result.answer;
-            textInput.dispatchEvent(new Event('input', { bubbles: true })); // 触发React/Vue的数据绑定
-        }
       }
 
     } else {
@@ -113,37 +150,42 @@ async function handleExplanation(e, qDiv) {
   });
 }
 
-// 自动勾选单选框逻辑
-function autoSelectOption(qDiv, answerLetter) {
-  // 清洗答案，比如 AI 返回 "A" 或 "A." 或 "选项 A"，只提取 A/B/C/D
-  const cleanAnswer = answerLetter.match(/[A-D]/i);
-  if (!cleanAnswer) return;
+function autoSelectOption(qDiv, answer) {
+  if (!answer) return;
   
-  const targetLetter = cleanAnswer[0].toUpperCase() + "."; // 构造 "A." 这种格式来匹配
-  
+  // 归一化答案：如果是 "True" 转成 "T"，"False" 转成 "F"，否则取第一个字母
+  let target = answer.toString().trim().toUpperCase();
+  if (target.includes("TRUE")) target = "T";
+  if (target.includes("FALSE")) target = "F";
+  if (target.length > 1) target = target[0]; // "Option A" -> "A"
+
   const labels = qDiv.querySelectorAll('label');
+  let found = false;
+
   labels.forEach(label => {
-    const letterSpan = label.querySelector('span');
-    if (letterSpan && letterSpan.innerText.trim() === targetLetter) {
-      // 模拟点击 label
+    const text = label.innerText.toUpperCase();
+    
+    // 匹配逻辑：
+    // 1. 判断题：label 文本完全等于 "T" 或 "F"
+    // 2. 选择题：label 包含 "A." 或 "A " 这种模式
+    const isTF = (target === 'T' || target === 'F') && text.trim() === target;
+    const isChoice = text.startsWith(target + ".") || text.startsWith(target + " ");
+
+    if (isTF || isChoice) {
       label.click();
-      
-      // 添加视觉反馈
       label.style.border = "2px solid #28a745";
       setTimeout(() => label.style.border = "", 2000);
+      found = true;
     }
   });
 }
 
-// 监控页面变化（应对动态加载）
+// 监控页面变化
 const observer = new MutationObserver((mutations) => {
   addAIButtons();
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true
-});
+observer.observe(document.body, { childList: true, subtree: true });
 
 // 初始加载
 setTimeout(addAIButtons, 1500);
