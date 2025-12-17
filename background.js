@@ -17,7 +17,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             "X-Title": "DS Tutor Extension"
           },
           body: JSON.stringify({
-            "model": data.model || "google/gemini-3-pro-preview",
+            "model": data.model || "deepseek/deepseek-r1-0528:free",
             "messages": [
               {
                 "role": "system",
