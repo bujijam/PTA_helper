@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 定义默认模型 ID (Gemini 1.5 Pro)
   // const DEFAULT_MODEL = "google/gemini-3-pro-preview";
-  const DEFAULT_MODEL = "deepseek/deepseek-r1-0528:free";
+  const DEFAULT_MODEL = "meta-llama/llama-3.1-405b-instruct:free";
 
   // 加载已保存的设置
   chrome.storage.local.get(['apiKey', 'model'], (result) => {
